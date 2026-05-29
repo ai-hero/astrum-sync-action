@@ -1,0 +1,37 @@
+---
+# yaml-language-server: $schema=./astrum.schema.json
+#
+# Reference example — exercises every field in the schema.
+
+version: 1
+
+app:
+  name: my-app
+
+container:
+  port: 8080
+  health_check_path: /health
+
+environments:
+  staging:
+    gh_environment: staging
+    domain: my-app-staging.platform.example.com
+    secrets:
+      - DATABASE_URL
+      - STRIPE_KEY
+    variables:
+      LOG_LEVEL: debug
+      REGION: ${REGION}
+      API_BASE: https://api-${REGION}.example.com
+
+  prod:
+    gh_environment: prod
+    domain: my-app.platform.example.com
+    secrets:
+      - DATABASE_URL
+      - STRIPE_KEY
+      - SENTRY_DSN
+    variables:
+      LOG_LEVEL: info
+      REGION: ${REGION}
+      API_BASE: https://api-${REGION}.example.com

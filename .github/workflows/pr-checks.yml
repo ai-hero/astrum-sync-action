@@ -1,0 +1,114 @@
+---
+name: pr checks
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  manifest-schema:
+    name: astrum.yml schema
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install ajv-cli
+        run: npm install -g ajv-cli@5 ajv-formats@3
+
+      - name: Compile schema
+        run: ajv compile --spec=draft2020 -s schemas/astrum.schema.json
+
+      - name: Validate reference example
+        run: ajv validate --spec=draft2020 -s schemas/astrum.schema.json -d schemas/example.astrum.yml
+
+  action-metadata:
+    name: action.yml metadata
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install yq
+        run: |
+          sudo curl -sSLf https://github.com/mikefarah/yq/releases/download/v4.45.4/yq_linux_amd64 -o /usr/local/bin/yq
+          sudo chmod +x /usr/local/bin/yq
+
+      - name: Verify required fields
+        run: |
+          set -euo pipefail
+          for field in name description runs runs.using; do
+            if ! yq -e ".${field}" action.yml > /dev/null 2>&1; then
+              echo "::error file=action.yml::missing required field: ${field}"
+              exit 1
+            fi
+          done
+          USING=$(yq -r '.runs.using' action.yml)
+          if [ "${USING}" != "composite" ] && [ "${USING}" != "node20" ] && [ "${USING}" != "node24" ] && [ "${USING}" != "docker" ]; then
+            echo "::error file=action.yml::runs.using must be composite/node20/node24/docker, got '${USING}'"
+            exit 1
+          fi
+
+  shellcheck:
+    name: shellcheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Extract and lint embedded bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq && sudo apt-get install -y -qq shellcheck >/dev/null
+          npm install yaml@2.6.0 --no-save --silent
+          mkdir -p /tmp/shell-blocks
+          node -e "
+            const fs = require('fs');
+            const yaml = require('yaml');
+            const doc = yaml.parse(fs.readFileSync('action.yml', 'utf8'));
+            (doc.runs.steps || []).forEach((step, i) => {
+              if (step.shell === 'bash' && step.run) {
+                fs.writeFileSync('/tmp/shell-blocks/step-' + i + '.sh', '#!/usr/bin/env bash\nset -euo pipefail\n' + step.run);
+              }
+            });
+          "
+          shopt -s nullglob
+          FILES=(/tmp/shell-blocks/*.sh)
+          if [ ${#FILES[@]} -eq 0 ]; then
+            echo "no bash steps to lint"; exit 0
+          fi
+          shellcheck -e SC2086,SC1083 "${FILES[@]}"
+
+  yamllint:
+    name: yamllint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install yamllint
+        run: pip install --quiet yamllint
+
+      - name: Run yamllint
+        run: |
+          yamllint -d '{
+            extends: default,
+            rules: {
+              line-length: {max: 150},
+              document-start: disable,
+              truthy: {allowed-values: ["true", "false", "on", "off"]},
+              comments: disable,
+              comments-indentation: disable
+            }
+          }' .

@@ -1,0 +1,135 @@
+---
+name: 'Astrum Sync'
+description: >-
+  Syncs an astrum.yml manifest, along with declared secrets and variables,
+  to Astrum. Authenticates via GitHub OIDC.
+author: 'AI Hero'
+
+branding:
+  icon: 'upload-cloud'
+  color: 'blue'
+
+inputs:
+  env:
+    description: >-
+      Target environment slug. Must match a key under environments: in
+      astrum.yml (e.g. staging, prod).
+    required: true
+
+  manifest-path:
+    description: 'Path to the astrum.yml manifest, relative to repo root.'
+    required: false
+    default: 'astrum.yml'
+
+  role-arn:
+    description: 'IAM role to assume via OIDC. Override only for non-prod testing.'
+    required: false
+    default: 'arn:aws:iam::REPLACE_ME:role/AppConfigWriter'
+
+  aws-region:
+    description: 'AWS region.'
+    required: false
+    default: 'us-east-1'
+
+  bucket:
+    description: 'Target S3 bucket. Override only for non-prod testing.'
+    required: false
+    default: 'aihero-app-config'
+
+runs:
+  using: 'composite'
+
+  steps:
+    - name: Set up Node
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+
+    - name: Install ajv-cli and yq
+      shell: bash
+      run: |
+        set -euo pipefail
+        npm install -g ajv-cli@5 ajv-formats@3
+        YQ_VERSION="v4.45.4"
+        sudo curl -sSLf "https://github.com/mikefarah/yq/releases/download/${YQ_VERSION}/yq_linux_amd64" -o /usr/local/bin/yq
+        sudo chmod +x /usr/local/bin/yq
+
+    - name: Validate manifest against schema
+      shell: bash
+      env:
+        MANIFEST_PATH: ${{ inputs.manifest-path }}
+        ACTION_PATH: ${{ github.action_path }}
+      run: |
+        set -euo pipefail
+        if [ ! -f "${MANIFEST_PATH}" ]; then
+          echo "::error file=${MANIFEST_PATH}::manifest not found at ${MANIFEST_PATH}"
+          exit 1
+        fi
+        yq -o=json '.' "${MANIFEST_PATH}" > /tmp/manifest.json
+        ajv validate \
+          --spec=draft2020 \
+          -s "${ACTION_PATH}/schemas/astrum.schema.json" \
+          -d /tmp/manifest.json
+
+    - name: Assume role via OIDC
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        role-to-assume: ${{ inputs.role-arn }}
+        aws-region: ${{ inputs.aws-region }}
+
+    - name: Sync manifest, secrets, and variables
+      shell: bash
+      env:
+        ENV_NAME: ${{ inputs.env }}
+        MANIFEST_PATH: ${{ inputs.manifest-path }}
+        BUCKET: ${{ inputs.bucket }}
+        OWNER: ${{ github.repository_owner }}
+        REPO: ${{ github.event.repository.name }}
+      run: |
+        set -euo pipefail
+
+        PREFIX="s3://${BUCKET}/${OWNER}/${REPO}/${ENV_NAME}"
+
+        if ! yq -e ".environments.${ENV_NAME}" "${MANIFEST_PATH}" > /dev/null 2>&1; then
+          echo "::error::Environment '${ENV_NAME}' is not declared under environments: in ${MANIFEST_PATH}"
+          exit 1
+        fi
+
+        GH_VARS="${ASTRUM_GH_VARS:-}"
+        if [ -z "${GH_VARS}" ]; then GH_VARS='{}'; fi
+        GH_SECRETS="${ASTRUM_GH_SECRETS:-}"
+        if [ -z "${GH_SECRETS}" ]; then GH_SECRETS='{}'; fi
+
+        echo "Pushing manifest to ${PREFIX}/manifest.yml"
+        aws s3 cp "${MANIFEST_PATH}" "${PREFIX}/manifest.yml" \
+          --content-type 'application/yaml' \
+          --no-progress
+
+        SECRET_NAMES_JSON=$(yq -o=json ".environments.${ENV_NAME}.secrets // []" "${MANIFEST_PATH}")
+        echo "${SECRET_NAMES_JSON}" | jq -r '.[]' | while IFS= read -r SECRET_NAME; do
+          [ -z "${SECRET_NAME}" ] && continue
+          SECRET_VALUE=$(printf '%s' "${GH_SECRETS}" | jq -r --arg n "${SECRET_NAME}" '.[$n] // ""')
+          printf '%s' "${SECRET_VALUE}" | aws s3 cp - "${PREFIX}/secrets/${SECRET_NAME}" --no-progress > /dev/null
+          echo "  ✓ secret ${SECRET_NAME}"
+        done
+
+        VAR_ENTRIES_JSON=$(yq -o=json ".environments.${ENV_NAME}.variables // {}" "${MANIFEST_PATH}" | jq -c 'to_entries[]')
+        if [ -n "${VAR_ENTRIES_JSON}" ]; then
+          while IFS= read -r ENTRY; do
+            [ -z "${ENTRY}" ] && continue
+            VAR_NAME=$(printf '%s' "${ENTRY}" | jq -r '.key')
+            VAR_VALUE=$(printf '%s' "${ENTRY}" | jq -r '.value')
+            while [[ "${VAR_VALUE}" =~ \$\{([A-Z_][A-Z0-9_]*)\} ]]; do
+              REF="${BASH_REMATCH[1]}"
+              REPLACEMENT=$(printf '%s' "${GH_VARS}" | jq -r --arg n "${REF}" '.[$n] // empty')
+              if [ -z "${REPLACEMENT}" ]; then
+                REPLACEMENT=$(printf '%s' "${GH_SECRETS}" | jq -r --arg n "${REF}" '.[$n] // empty')
+              fi
+              VAR_VALUE="${VAR_VALUE//\$\{${REF}\}/${REPLACEMENT}}"
+            done
+            printf '%s' "${VAR_VALUE}" | aws s3 cp - "${PREFIX}/variables/${VAR_NAME}" --no-progress > /dev/null
+            echo "  ✓ variable ${VAR_NAME}"
+          done <<< "${VAR_ENTRIES_JSON}"
+        fi
+
+        echo "Sync complete: ${PREFIX}/"

@@ -1,0 +1,94 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/ai-hero/astrum-sync-action/main/schemas/astrum.schema.json",
+  "title": "astrum.yml app manifest (v1)",
+  "description": "Declarative app manifest consumed by Astrum.",
+  "type": "object",
+  "required": ["version", "app", "environments"],
+  "additionalProperties": false,
+  "properties": {
+    "version": {
+      "const": 1,
+      "description": "Schema version. Must be 1."
+    },
+    "app": {
+      "type": "object",
+      "required": ["name"],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9-]{0,62}$",
+          "description": "App slug. Lowercase letters, digits, hyphens. Must start with a letter. Max 63 chars."
+        }
+      }
+    },
+    "container": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "port": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535,
+          "default": 8080,
+          "description": "TCP port the container listens on. Defaults to 8080."
+        },
+        "health_check_path": {
+          "type": "string",
+          "pattern": "^/",
+          "default": "/health",
+          "description": "HTTP path polled to verify container health. Must start with /. Defaults to /health."
+        },
+        "command": {
+          "type": ["string", "null"],
+          "description": "Optional override for the image's CMD. Null or absent uses the image default."
+        }
+      }
+    },
+    "environments": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": false,
+      "patternProperties": {
+        "^[a-z][a-z0-9-]{0,30}$": {
+          "type": "object",
+          "required": ["gh_environment", "domain"],
+          "additionalProperties": false,
+          "properties": {
+            "gh_environment": {
+              "type": "string",
+              "description": "Which GitHub Environment's secrets and variables to pull from at sync time. Setting environment: in the calling job applies that environment's protection rules to the sync."
+            },
+            "domain": {
+              "type": "string",
+              "pattern": "^[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?(\\.[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?)+$",
+              "description": "Public hostname for this environment."
+            },
+            "secrets": {
+              "type": "array",
+              "uniqueItems": true,
+              "default": [],
+              "description": "Names of GitHub env-scoped secrets to sync. Values are fetched fresh from GH at sync time — never inline in the manifest.",
+              "items": {
+                "type": "string",
+                "pattern": "^[A-Z_][A-Z0-9_]*$"
+              }
+            },
+            "variables": {
+              "type": "object",
+              "default": {},
+              "description": "Per-environment variables map. Keys are UPPER_SNAKE_CASE env var names. Values are strings; ${NAME} substrings are substituted from GH env-scoped variables, then GH env-scoped secrets, at sync time. Composable: 'https://api-${REGION}.example.com'.",
+              "patternProperties": {
+                "^[A-Z_][A-Z0-9_]*$": {
+                  "type": "string"
+                }
+              },
+              "additionalProperties": false
+            }
+          }
+        }
+      }
+    }
+  }
+}
