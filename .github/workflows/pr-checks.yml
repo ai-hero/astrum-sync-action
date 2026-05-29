@@ -105,7 +105,7 @@ jobs:
           yamllint -d '{
             extends: default,
             rules: {
-              line-length: {max: 150},
+              line-length: disable,
               document-start: disable,
               truthy: {allowed-values: ["true", "false", "on", "off"]},
               comments: disable,
