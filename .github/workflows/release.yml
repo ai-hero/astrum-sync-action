@@ -1,0 +1,81 @@
+---
+name: release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Semver version to release (e.g., 1.0.0 — no v prefix)'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: main
+
+      - name: Validate inputs
+        run: |
+          set -euo pipefail
+          VERSION="${{ inputs.version }}"
+          if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Invalid version: '$VERSION'. Expected strict semver like 1.0.0 (no 'v' prefix, no pre-release suffix)."
+            exit 1
+          fi
+          MAJOR="${VERSION%%.*}"
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          echo "MAJOR=$MAJOR"     >> "$GITHUB_ENV"
+          echo "Releasing v$VERSION (rolling tag: v$MAJOR)"
+
+      - name: Reject if pinned tag exists
+        run: |
+          set -euo pipefail
+          if git rev-parse "refs/tags/v${VERSION}" >/dev/null 2>&1; then
+            echo "::error::Tag v${VERSION} already exists. Pinned tags are immutable — bump the version."
+            exit 1
+          fi
+
+      - name: Configure git
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Create pinned tag and GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release create "v${VERSION}" \
+            --target "${{ github.sha }}" \
+            --title  "v${VERSION}" \
+            --generate-notes
+
+      - name: Move rolling major tag (v${{ env.MAJOR }})
+        run: |
+          set -euo pipefail
+          git tag -f "v${MAJOR}" "${{ github.sha }}"
+          git push -f origin "refs/tags/v${MAJOR}"
+          echo "Rolling tag v${MAJOR} now points at ${{ github.sha }}"
+
+      - name: Summary
+        run: |
+          {
+            echo "## Released v${VERSION}"
+            echo ""
+            echo "- Pinned tag: \`v${VERSION}\` → ${{ github.sha }}"
+            echo "- Rolling tag: \`v${MAJOR}\` → ${{ github.sha }}"
+            echo "- Release: https://github.com/${{ github.repository }}/releases/tag/v${VERSION}"
+            echo ""
+            echo "Consumers can pin with \`ai-hero/${{ github.event.repository.name }}@v${VERSION}\` or float with \`@v${MAJOR}\`."
+          } >> "$GITHUB_STEP_SUMMARY"
