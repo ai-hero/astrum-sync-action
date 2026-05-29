@@ -1,0 +1,57 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/ai-hero/astrum-sync-action/main/schemas/astrum.schema.json
+#
+# Drop this at the root of your app repo as astrum.yml and customize.
+# The schema URL above wires up IDE autocomplete + validation.
+
+version: 1
+
+app:
+  # Lowercase, hyphens only. Appears in the platform's S3 path under
+  # your GitHub org. Max 63 characters.
+  name: my-app
+
+container:
+  # Port your container listens on inside the container.
+  port: 8080
+  # HTTP path that returns 200 when your app is healthy. The platform
+  # polls this during deploys before routing traffic to the new version.
+  health_check_path: /health
+
+environments:
+  staging:
+    # The GitHub Environment (your-repo > Settings > Environments) that
+    # holds the actual values for the secrets and ${VAR} references below.
+    # Set up environment protection rules (required reviewers, branch
+    # restrictions) here too — they apply to anything that runs with
+    # `environment: staging` in your workflow.
+    gh_environment: staging
+    domain: my-app-staging.example.com
+
+    # Names of GitHub env-scoped secrets to sync. The action reads each
+    # value from your GH env secrets at sync time. Values never live here.
+    secrets:
+      - DATABASE_URL
+      - STRIPE_KEY
+
+    # Per-env runtime variables.
+    #   - Plain strings (LOG_LEVEL) are used verbatim.
+    #   - ${NAME} references resolve from GH env-scoped variables first,
+    #     then GH env-scoped secrets. Unresolved refs become empty.
+    #   - Composable: 'https://api-${REGION}.example.com'.
+    variables:
+      LOG_LEVEL: debug
+      REGION: ${REGION}
+      API_BASE: https://api-${REGION}.example.com
+
+  prod:
+    gh_environment: prod
+    domain: my-app.example.com
+    secrets:
+      - DATABASE_URL
+      - STRIPE_KEY
+      - SENTRY_DSN
+    variables:
+      LOG_LEVEL: info
+      REGION: ${REGION}
+      API_BASE: https://api-${REGION}.example.com

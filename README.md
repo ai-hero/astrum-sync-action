@@ -78,7 +78,7 @@ For IDE autocomplete, add this header to your manifest:
 # yaml-language-server: $schema=https://raw.githubusercontent.com/ai-hero/astrum-sync-action/main/schemas/astrum.schema.json
 ```
 
-See `schemas/example.astrum.yml` for a worked example.
+A minimal starter is in `examples/basic_astrum.yml`. `schemas/example.astrum.yml` is the exhaustive reference that exercises every field.
 
 ## License
 
