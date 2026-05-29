@@ -24,7 +24,7 @@ inputs:
   role-arn:
     description: 'IAM role to assume via OIDC. Override only for non-prod testing.'
     required: false
-    default: 'arn:aws:iam::REPLACE_ME:role/AppConfigWriter'
+    default: 'arn:aws:iam::774884805614:role/AppConfigWriter'
 
   aws-region:
     description: 'AWS region.'
