@@ -22,9 +22,12 @@ inputs:
     default: 'astrum.yml'
 
   role-arn:
-    description: 'IAM role to assume via OIDC. Override only for non-prod testing.'
+    description: >-
+      IAM role to assume via OIDC. Defaults to the per-org writer role
+      (AppConfigWriter-${{ github.repository_owner }}); override only for
+      non-prod testing.
     required: false
-    default: 'arn:aws:iam::774884805614:role/AppConfigWriter'
+    default: 'arn:aws:iam::774884805614:role/AppConfigWriter-${{ github.repository_owner }}'
 
   aws-region:
     description: 'AWS region.'
