@@ -107,16 +107,23 @@ runs:
         GH_SECRETS="${ASTRUM_GH_SECRETS:-}"
         if [ -z "${GH_SECRETS}" ]; then GH_SECRETS='{}'; fi
 
-        echo "Pushing manifest to ${PREFIX}/manifest.yml"
-        aws s3 cp "${MANIFEST_PATH}" "${PREFIX}/manifest.yml" \
-          --content-type 'application/yaml' \
-          --no-progress
+        # Materialise the desired state into a temp dir, then `aws s3 sync --delete`
+        # against the prefix in one shot. This gives proper sync semantics:
+        # entries removed from the manifest become deletes on S3, not orphans.
+        # Files live on the ephemeral runner only for the duration of this step
+        # and are wiped at job end; the bucket has versioning + KMS, so `--delete`
+        # creates restorable delete markers rather than purging history.
+        STATE_DIR="$(mktemp -d)"
+        trap 'rm -rf "${STATE_DIR}"' EXIT
+        mkdir -p "${STATE_DIR}/secrets" "${STATE_DIR}/variables"
+
+        cp "${MANIFEST_PATH}" "${STATE_DIR}/manifest.yml"
 
         SECRET_NAMES_JSON=$(yq -o=json ".environments.${ENV_NAME}.secrets // []" "${MANIFEST_PATH}")
         echo "${SECRET_NAMES_JSON}" | jq -r '.[]' | while IFS= read -r SECRET_NAME; do
           [ -z "${SECRET_NAME}" ] && continue
           SECRET_VALUE=$(printf '%s' "${GH_SECRETS}" | jq -r --arg n "${SECRET_NAME}" '.[$n] // ""')
-          printf '%s' "${SECRET_VALUE}" | aws s3 cp - "${PREFIX}/secrets/${SECRET_NAME}" --no-progress > /dev/null
+          printf '%s' "${SECRET_VALUE}" > "${STATE_DIR}/secrets/${SECRET_NAME}"
           echo "  ✓ secret ${SECRET_NAME}"
         done
 
@@ -134,9 +141,14 @@ runs:
               fi
               VAR_VALUE="${VAR_VALUE//\$\{${REF}\}/${REPLACEMENT}}"
             done
-            printf '%s' "${VAR_VALUE}" | aws s3 cp - "${PREFIX}/variables/${VAR_NAME}" --no-progress > /dev/null
+            printf '%s' "${VAR_VALUE}" > "${STATE_DIR}/variables/${VAR_NAME}"
             echo "  ✓ variable ${VAR_NAME}"
           done <<< "${VAR_ENTRIES_JSON}"
         fi
+
+        echo "Syncing local state -> ${PREFIX}/ (orphans will be deleted)"
+        aws s3 sync "${STATE_DIR}/" "${PREFIX}/" \
+          --delete \
+          --no-progress
 
         echo "Sync complete: ${PREFIX}/"
