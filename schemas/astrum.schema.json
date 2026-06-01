@@ -53,12 +53,12 @@
       "patternProperties": {
         "^[a-z][a-z0-9-]{0,30}$": {
           "type": "object",
-          "required": ["gh_environment", "domain"],
+          "required": ["domain"],
           "additionalProperties": false,
           "properties": {
             "gh_environment": {
               "type": "string",
-              "description": "Which GitHub Environment's secrets and variables to pull from at sync time. Setting environment: in the calling job applies that environment's protection rules to the sync."
+              "description": "Optional. Names a GitHub Environment whose env-scoped secrets and variables overlay org/repo-level ones during sync. The calling workflow is expected to read this and set environment: on the sync job so its protection rules apply. When omitted, the sync runs without any GH Environment binding and only org/repo-level values are visible."
             },
             "domain": {
               "type": "string",
