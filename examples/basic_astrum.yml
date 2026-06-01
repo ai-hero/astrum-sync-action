@@ -44,8 +44,8 @@ environments:
       REGION: ${REGION}
       API_BASE: https://api-${REGION}.example.com
 
-  prod:
-    gh_environment: prod
+  production:
+    gh_environment: production
     domain: my-app.example.com
     secrets:
       - DATABASE_URL
