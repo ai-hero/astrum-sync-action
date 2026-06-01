@@ -89,10 +89,17 @@ runs:
       # ASTRUM_GH_VARS and ASTRUM_GH_SECRETS are passed by the calling step
       # (e.g. `env: ASTRUM_GH_VARS: ${{ toJson(vars) }}`) and inherit into
       # this composite step's environment.
+      env:
+        ACTION_PATH: ${{ github.action_path }}
+        ENV_NAME: ${{ inputs.env }}
+        MANIFEST_PATH: ${{ inputs.manifest-path }}
+        BUCKET: ${{ inputs.bucket }}
+        OWNER: ${{ github.repository_owner }}
+        REPO: ${{ github.event.repository.name }}
       run: |
-        "${{ github.action_path }}/scripts/sync.sh" \
-          "${{ inputs.env }}" \
-          "${{ inputs.manifest-path }}" \
-          "${{ inputs.bucket }}" \
-          "${{ github.repository_owner }}" \
-          "${{ github.event.repository.name }}"
+        "${ACTION_PATH}/scripts/sync.sh" \
+          "${ENV_NAME}" \
+          "${MANIFEST_PATH}" \
+          "${BUCKET}" \
+          "${OWNER}" \
+          "${REPO}"
