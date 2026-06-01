@@ -22,9 +22,14 @@ inputs:
     default: 'astrum.yml'
 
   role-arn:
-    description: 'IAM role to assume via OIDC. Override only for non-prod testing.'
+    description: >-
+      IAM role to assume via OIDC. When omitted, computed at step-eval time
+      as arn:aws:iam::774884805614:role/AppConfigWriter-<github.repository_owner>.
+      Override only for non-prod testing. Composite-action input defaults are
+      static strings, so the per-org default is resolved in the step below, not
+      here.
     required: false
-    default: 'arn:aws:iam::774884805614:role/AppConfigWriter'
+    default: ''
 
   aws-region:
     description: 'AWS region.'
@@ -74,7 +79,9 @@ runs:
     - name: Assume role via OIDC
       uses: aws-actions/configure-aws-credentials@v4
       with:
-        role-to-assume: ${{ inputs.role-arn }}
+        # Composite-action input defaults don't evaluate ${{ ... }} expressions,
+        # so the per-org default is computed here at step-eval time.
+        role-to-assume: ${{ inputs.role-arn != '' && inputs.role-arn || format('arn:aws:iam::774884805614:role/AppConfigWriter-{0}', github.repository_owner) }}
         aws-region: ${{ inputs.aws-region }}
 
     - name: Sync manifest, secrets, and variables
